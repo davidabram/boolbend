@@ -1,0 +1,22 @@
+# Nix
+result
+result-*
+.direnv/
+
+# Bend build output
+# `bend x.bend -o x` names its binary after -o; list new targets here.
+# Emitted .c and .js stay unignored: Bend projects keep foreign sources in them.
+/main
+*.gpu
+*.bendtt
+dist/
+
+# JS interop
+node_modules/
+*.tgz
+
+# Local agent and tool state
+.claude/
+.agents/
+.tmp/
+.env
