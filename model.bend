@@ -31,3 +31,18 @@ def eval(expr: Expr, +env: Env) -> Bool:
     case Or{left, right}:
       Bool.or(eval(left, env), eval(right, env))
 
+
+def len(expr: Expr) -> Nat:
+  match expr:
+    case Lit{value}:
+      1n
+    case Var{name}:
+      1n
+    case Not{inner}:
+      1n+len(inner)
+    case And{left, right}:
+      l r = len(left) len(right)
+      Nat.add(l, r)
+    case Or{left, right}:
+      l r = len(left) len(right)
+      Nat.add(l, r)

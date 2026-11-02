@@ -92,3 +92,10 @@ law absorbs_or_in_and:
   for +left: Model.Expr
   for +right: Model.Expr
   {Optimizer.optimize(Model.And{left, Model.Or{left, right}}) == Optimizer.optimize(left) : Model.Expr}
+
+def Equivalent(+a: Model.Expr, +b: Model.Expr) -> Type:
+  @env: Model.Env -> {Model.eval(a, env) == Model.eval(b, env) : Bool}
+
+law optimal:
+  for +expr: Model.Expr
+  Equivalent(Optimizer.optimize(expr), expr) & (@other: Model.Expr -> Equivalent(other, expr) -> {Nat.is_le(Model.len(Optimizer.optimize(expr)), Model.len(other)) == True{} : Bool})
