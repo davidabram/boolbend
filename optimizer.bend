@@ -1,115 +1,157 @@
 import Base
 import ./model.bend as Model
 
-def same(a: Model.Expr, b: Model.Expr) -> Bool:
-  match a b:
-    case Model.Lit{x} Model.Lit{y}:
-      Bool.not(Bool.xor(x, y))
-    case Model.Var{x} Model.Var{y}:
-      String.eq(x, y)
-    case Model.Not{x} Model.Not{y}:
-      same(x, y)
-    case Model.And{al, ar} Model.And{bl, br}:
-      l r = same(al, bl) same(ar, br)
-      Bool.and(l, r)
-    case Model.Or{al, ar} Model.Or{bl, br}:
-      l r = same(al, bl) same(ar, br)
-      Bool.and(l, r)
-    case _ _:
+def cat(xs: List<&2, String>, ys: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      ys
+    case h <> t:
+      h <> cat(t, ys)
+
+def vars(expr: Model.Expr) -> List<&2, String>:
+  match expr:
+    case Model.Lit{value}:
+      Nil{}
+    case Model.Var{name}:
+      name <> Nil{}
+    case Model.Not{inner}:
+      vars(inner)
+    case Model.And{left, right}:
+      l r = vars(left) vars(right)
+      cat(l, r)
+    case Model.Or{left, right}:
+      l r = vars(left) vars(right)
+      cat(l, r)
+
+def mem(+name: String, names: List<&2, String>) -> Bool:
+  match names:
+    case Nil{}:
       False{}
+    case h <> t:
+      Bool.or(String.eq(name, h), mem(name, t))
 
-def negate(expr: Model.Expr) -> Model.Expr:
-  match expr:
-    case Model.Lit{value}:
-      Model.Lit{Bool.not(value)}
-    case Model.Var{name}:
-      Model.Not{Model.Var{name}}
-    case Model.Not{inner}:
-      match inner:
-        case Model.Lit{value}:
-          Model.Not{Model.Lit{Bool.not(value)}}
-        case Model.Var{name}:
-          Model.Var{name}
-        case Model.Not{x}:
-          Model.Not{Model.Not{negate(x)}}
-        case Model.And{left, right}:
-          l r = negate(left) negate(right)
-          Model.Not{Model.Or{l, r}}
-        case Model.Or{left, right}:
-          l r = negate(left) negate(right)
-          Model.Not{Model.And{l, r}}
-    case Model.And{left, right}:
-      l r = negate(left) negate(right)
-      Model.Or{l, r}
-    case Model.Or{left, right}:
-      l r = negate(left) negate(right)
-      Model.And{l, r}
+def uniq.if(+name: String, skip: Unit -> List<&2, String>, keep: Unit -> List<&2, String>, seen: Bool) -> List<&2, String>:
+  match seen:
+    case False{}:
+      name <> keep(Unit{})
+    case True{}:
+      skip(Unit{})
 
-def implies(+left: Model.Expr, +right: Model.Expr) -> Bool:
-  match right:
-    case Model.Or{x, y}:
-      a b = same(left, Model.Or{x, y}) same(left, x)
-      Bool.or(a, b)
-    case other:
-      same(left, other)
+def uniq(names: List<&2, String>, +seen: List<&2, String>) -> List<&2, String>:
+  match names:
+    case Nil{}:
+      Nil{}
+    case +h <> +t:
+      uniq.if(h, u => uniq(t, seen), u => uniq(t, h <> seen), mem(h, seen))
 
-def implied(+left: Model.Expr, +right: Model.Expr) -> Bool:
-  match right:
-    case Model.And{x, y}:
-      a b = same(left, Model.And{x, y}) same(left, x)
-      Bool.or(a, b)
-    case other:
-      same(left, other)
+def agree(names: List<&2, String>, +env: Model.Env, +a: Model.Expr, +b: Model.Expr) -> Bool:
+  match names:
+    case Nil{}:
+      Bool.not(Bool.xor(Model.eval(a, env), Model.eval(b, env)))
+    case +h <> +t:
+      x y = agree(t, Model.EnvCons{h, True{}, env}, a, b) agree(t, Model.EnvCons{h, False{}, env}, a, b)
+      Bool.and(x, y)
 
-def both_right(+left: Model.Expr, +right: Model.Expr) -> Model.Expr:
-  match right:
-    case Model.Lit{True{}}:
-      left
-    case Model.Lit{False{}}:
-      Model.Lit{False{}}
-    case other:
-      complement absorbed = same(negate(left), other) implies(left, other)
-      Bool.pick(Model.Expr, complement, Model.Lit{False{}}, Bool.pick(Model.Expr, absorbed, left, Model.And{left, other}))
+def ecat(xs: List<&2, Model.Expr>, ys: List<&2, Model.Expr>) -> List<&2, Model.Expr>:
+  match xs:
+    case Nil{}:
+      ys
+    case h <> t:
+      h <> ecat(t, ys)
 
-def both(left: Model.Expr, +right: Model.Expr) -> Model.Expr:
-  match left:
-    case Model.Lit{True{}}:
-      right
-    case Model.Lit{False{}}:
-      Model.Lit{False{}}
-    case other:
-      both_right(other, right)
+def nots(xs: List<&2, Model.Expr>) -> List<&2, Model.Expr>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case h <> t:
+      Model.Not{h} <> nots(t)
 
-def either_right(+left: Model.Expr, +right: Model.Expr) -> Model.Expr:
-  match right:
-    case Model.Lit{True{}}:
-      Model.Lit{True{}}
-    case Model.Lit{False{}}:
-      left
-    case other:
-      complement absorbed = same(negate(left), other) implied(left, other)
-      Bool.pick(Model.Expr, complement, Model.Lit{True{}}, Bool.pick(Model.Expr, absorbed, left, Model.Or{left, other}))
+def mk(op: Bool, left: Model.Expr, right: Model.Expr) -> Model.Expr:
+  match op:
+    case False{}:
+      Model.And{left, right}
+    case True{}:
+      Model.Or{left, right}
 
-def either(left: Model.Expr, +right: Model.Expr) -> Model.Expr:
-  match left:
-    case Model.Lit{True{}}:
-      Model.Lit{True{}}
-    case Model.Lit{False{}}:
-      right
-    case other:
-      either_right(other, right)
+def pairs(+op: Bool, +left: Model.Expr, rights: List<&2, Model.Expr>) -> List<&2, Model.Expr>:
+  match rights:
+    case Nil{}:
+      Nil{}
+    case h <> t:
+      mk(op, left, h) <> pairs(op, left, t)
 
-def optimize(expr: Model.Expr) -> Model.Expr:
-  match expr:
-    case Model.Lit{value}:
-      Model.Lit{value}
-    case Model.Var{name}:
-      Model.Var{name}
-    case Model.Not{inner}:
-      negate(optimize(inner))
-    case Model.And{left, right}:
-      l r = optimize(left) optimize(right)
-      both(l, r)
-    case Model.Or{left, right}:
-      l r = optimize(left) optimize(right)
-      either(l, r)
+def prod(+op: Bool, lefts: List<&2, Model.Expr>, +rights: List<&2, Model.Expr>) -> List<&2, Model.Expr>:
+  match lefts:
+    case Nil{}:
+      Nil{}
+    case h <> t:
+      ecat(pairs(op, h, rights), prod(op, t, rights))
+
+def leaves(names: List<&2, String>) -> List<&2, Model.Expr>:
+  match names:
+    case Nil{}:
+      Nil{}
+    case h <> t:
+      Model.Var{h} <> leaves(t)
+
+def atoms(r: Nat, names: List<&2, String>) -> List<&2, Model.Expr>:
+  match r:
+    case 0n:
+      leaves(names)
+    case 1n+p:
+      Nil{}
+
+def cands(+fuel: Nat, +s: Nat, split: Bool, +i: Nat, +names: List<&2, String>) -> List<&2, Model.Expr>:
+  match fuel:
+    case 0n:
+      Nil{}
+    case 1n+h:
+      match s:
+        case 0n:
+          Nil{}
+        case 1n+r:
+          match split:
+            case False{}:
+              a b = cands(h, r, False{}, 0n, names) cands(1n+h, r, True{}, 1n, names)
+              ecat(atoms(r, names), ecat(nots(a), b))
+            case True{}:
+              +l +rs = cands(h, i, False{}, 0n, names) cands(h, 1n+r, False{}, 0n, names)
+              ecat(prod(False{}, l, rs), ecat(prod(True{}, l, rs), cands(1n+h, r, True{}, 1n+i, names)))
+
+def level(+n: Nat, +names: List<&2, String>) -> List<&2, Model.Expr>:
+  cands(n, n, False{}, 0n, names)
+
+def find.if(+head: Model.Expr, rest: Unit -> Maybe<&2, Model.Expr>, hit: Bool) -> Maybe<&2, Model.Expr>:
+  match hit:
+    case False{}:
+      rest(Unit{})
+    case True{}:
+      Some{head}
+
+def find(xs: List<&2, Model.Expr>, +names: List<&2, String>, +target: Model.Expr) -> Maybe<&2, Model.Expr>:
+  match xs:
+    case Nil{}:
+      None{}
+    case +h <> t:
+      find.if(h, u => find(t, names, target), agree(names, Model.EnvNil{}, h, target))
+
+def search.if(rest: Unit -> Model.Expr, found: Maybe<&2, Model.Expr>) -> Model.Expr:
+  match found:
+    case None{}:
+      rest(Unit{})
+    case Some{x}:
+      x
+
+def search(fuel: Nat, +n: Nat, +names: List<&2, String>, +target: Model.Expr) -> Model.Expr:
+  match fuel:
+    case 0n:
+      target
+    case 1n+f:
+      search.if(u => search(f, 1n+n, names, target), find(level(n, names), names, target))
+
+def lits() -> List<&2, Model.Expr>:
+  Model.Lit{False{}} <> Model.Lit{True{}} <> Nil{}
+
+def optimize(+expr: Model.Expr) -> Model.Expr:
+  +names = uniq(vars(expr), Nil{})
+  search.if(u => search(Model.len(expr), 1n, names, expr), find(lits(), names, expr))

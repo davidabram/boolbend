@@ -19,16 +19,21 @@ A tiny compiler pass. Take a boolean expression like
 and shrink it to
 
 ```
-(a | (!c | d))
+(a | (d | !c))
 ```
 
-without changing what it means. The optimizer folds constants, removes double
-negations, pushes `!` inward (De Morgan), and handles contradiction
-(`a & !a`), excluded middle (`a | !a`), idempotence and absorption.
+without changing what it means, and with nothing smaller that means the same.
+The optimizer doesn't apply rewrite rules. It enumerates candidate expressions
+over the input's own variables, shortest first, and returns the first one that
+agrees with the input on every assignment of those variables. Candidates come
+in a fixed order, so two inputs with the same meaning get the same answer.
+That is what makes constant folding, double negation, De Morgan, contradiction,
+excluded middle, idempotence and absorption all fall out as theorems.
 
-Inside `optimizer.bend`, the left and right halves of an expression are optimized
-in parallel (`l r = optimize(left) optimize(right)`), so on a big tree the work
-spreads across your cores. Bend makes it look that easy.
+The search is exponential in the size of the answer, which is fine for the
+demo but not for big formulas. Inside `optimizer.bend`, candidate generation and
+the truth-table check split their work with parallel calls
+(`a b = f(x) g(y)`), so it spreads across your cores.
 
 ## Who wrote what
 
@@ -38,10 +43,10 @@ line Bend calls *law-driven development*:
 | File | Written by | What it is |
 |---|---|---|
 | `model.bend` | **a hu-man** | The spec of the world: the `Expr` syntax tree, variable environments, and `eval`, which says what an expression *means*. |
-| `LAWS.bend` | **a hu-man** | 22 laws. These are the theorem statements. The AI is not allowed to touch them. |
+| `LAWS.bend` | **a hu-man** | 23 laws. These are the theorem statements. The AI is not allowed to touch them. |
 | `optimizer.bend` | the AI | The implementation. |
 | `PROOF.bend` | the AI | A proof of every law in `LAWS.bend`, plus whatever helper lemmas it needed. |
-| `demo.bend` | the AI | 40 example inputs, each run through the optimizer and compared against the original. |
+| `demo.bend` | the AI | 44 example inputs, each run through the optimizer and compared against the original. |
 
 So the human wrote two short files: the semantics and the theorem statements.
 The AI wrote everything else, and it can't fake any of it, because
@@ -88,7 +93,7 @@ In Lean that's roughly
 `theorem preserves_meaning (e : Expr) (env : Env) : eval (optimize e) env = eval e env`.
 
 That law alone would allow a do-nothing optimizer (`optimize e = e` satisfies it
-trivially), so the other 21 laws say what the optimizer must actually *do*:
+trivially), so the other 22 laws say what the optimizer must actually *do*:
 
 ```python
 law removes_double_not:
@@ -98,6 +103,15 @@ law removes_double_not:
 law removes_contradiction:
   for +expr: Model.Expr
   {Optimizer.optimize(Model.And{expr, Model.Not{expr}}) == Model.Lit{False{}} : Model.Expr}
+```
+
+The last law is the strongest. It says the output is never longer, by
+`Model.len`, than any expression with the same meaning:
+
+```python
+law optimal:
+  for +expr: Model.Expr
+  Equivalent(Optimizer.optimize(expr), expr) & (@other: Model.Expr -> Equivalent(other, expr) -> {Nat.is_le(Model.len(Optimizer.optimize(expr)), Model.len(other)) == True{} : Bool})
 ```
 
 Correctness laws plus behaviour laws give a spec that's tight from both sides.
@@ -110,12 +124,13 @@ goal, a recursive call is the induction hypothesis, and `%e : P` rewrites. Each
 law `foo` in `LAWS.bend` gets proven by `def Laws.foo` in `PROOF.bend`:
 
 ```python
-def Laws.removes_contradiction(expr):
-  both_complement(Optimizer.optimize(expr))
+def Laws.and_idempotent(expr):
+  +expr = expr
+  canon(expr, Model.And{expr, expr}, Optimizer.vars(expr), {==}, +e => bool_and_self(Model.eval(expr, e)))
 ```
 
-`PROOF.bend` is about 2,000 lines and 100+ lemmas. Nobody has to read it,
-because the checker already did. You read the 22 laws.
+`PROOF.bend` is about 4,700 lines and 260+ lemmas. Nobody has to read it,
+because the checker already did. You read the 23 laws.
 
 ## How to run it
 
@@ -167,23 +182,24 @@ bend demo.bend
 ```
 #20 everything at once
   in : !!((!False & ((!!True & !!a) | (False & b))) | !(!True | ((False | !!c) & (!False & !!!d))))
-  out: (a | (!c | d))
+  out: (a | (d | !c))
   size 34 -> 6, agrees on 16/16 environments
 ...
-#33 de morgan grows the output
-  in : !(a & b)
-  out: (!a | !b)
-  size 4 -> 5, agrees on 16/16 environments
+#42 common factor pulled out
+  in : ((a & b) | (a & c))
+  out: (a & (b | c))
+  size 7 -> 5, agrees on 16/16 environments
 ```
 
-The demo runs 40 examples, from a single literal up to a 101-deep stack of `!`
+The demo runs 44 examples, from a single literal up to a 101-deep stack of `!`
 and wide trees, and checks each result against all 16 assignments of
 `a, b, c, d`. That's a sanity check for humans. The real guarantee is the proof
 of `preserves_meaning`.
 
-Some examples are there on purpose to show what the optimizer *won't* do. It
-doesn't normalize associativity (#39), and De Morgan can make the output bigger
-(#33, #34). If you want those properties, add a law. That's the whole workflow.
+The last few examples (#41 to #44) need more than local rewrites: factoring,
+dropping a consensus term, turning `!a & !b` into `!(a | b)`. The `optimal` law
+is what forced the optimizer to find those. Add a law and the code has to follow.
+That's the whole workflow.
 
 ## The pitch, in one paragraph
 

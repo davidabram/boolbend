@@ -41,8 +41,8 @@ def tree(+depth: Nat, +leaf: Model.Expr) -> Model.Expr:
       or(l, r)
 
 # Ordered from a single leaf up to deep expressions that use every rewrite,
-# then edge cases: all-literal input, odd names, rewrites the optimizer does not
-# have, output that grows, and deep or wide shapes.
+# then edge cases: all-literal input, odd names, deep or wide shapes, and
+# inputs whose smallest form no local rewrite reaches.
 def examples() -> List<&2, Example>:
   [
     Example{1n, "literal", t()},
@@ -77,14 +77,18 @@ def examples() -> List<&2, Example>:
     Example{30n, "excluded middle", or(v("a"), no(v("a")))},
     Example{31n, "idempotent and", an(v("a"), v("a"))},
     Example{32n, "absorption", or(v("a"), an(v("a"), v("b")))},
-    Example{33n, "de morgan grows the output", no(an(v("a"), v("b")))},
-    Example{34n, "de morgan grows a wider and", no(an(an(v("a"), v("b")), an(v("c"), v("d"))))},
+    Example{33n, "not of an and is already smallest", no(an(v("a"), v("b")))},
+    Example{34n, "not of a wider and is already smallest", no(an(an(v("a"), v("b")), an(v("c"), v("d"))))},
     Example{35n, "not of a folded or", no(or(v("a"), t()))},
     Example{36n, "not of a folded and", no(an(v("a"), f()))},
     Example{37n, "101 nots on a variable", nots(101n, v("a"))},
     Example{38n, "100 nots on an and", nots(100n, an(v("a"), v("b")))},
-    Example{39n, "associativity is not normalized", an(or(or(v("a"), v("b")), v("c")), or(v("a"), or(v("b"), v("c"))))},
+    Example{39n, "same or, grouped two ways", an(or(or(v("a"), v("b")), v("c")), or(v("a"), or(v("b"), v("c"))))},
     Example{40n, "wide tree of dead leaves", tree(4n, an(f(), v("a")))},
+    Example{41n, "and of nots becomes a nor", an(no(v("a")), no(v("b")))},
+    Example{42n, "common factor pulled out", or(an(v("a"), v("b")), an(v("a"), v("c")))},
+    Example{43n, "consensus term dropped", or(or(an(v("a"), v("b")), an(no(v("a")), v("c"))), an(v("b"), v("c")))},
+    Example{44n, "xor saves one not", or(an(v("a"), no(v("b"))), an(no(v("a")), v("b")))},
   ]
 
 def show(expr: Model.Expr) -> String:
